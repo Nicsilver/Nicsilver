@@ -34,6 +34,7 @@ Full-stack developer at **Brunata** in Denmark, mostly Kotlin, Java, Angular and
 </picture>
 
 <p align="center">
+  <a href="https://github.com/Nicsilver/commit-arcade"><img src="assets/card-commit-arcade.svg" width="49%" alt="Commit Arcade"></a>
   <a href="https://github.com/Nicsilver/flutster"><img src="assets/card-flutster.svg" width="49%" alt="Flutster"></a>
   <a href="https://github.com/Nicsilver/roam"><img src="assets/card-roam.svg" width="49%" alt="Roam"></a>
   <a href="https://github.com/Nicsilver/PCIO"><img src="assets/card-pcio.svg" width="49%" alt="PCIO"></a>

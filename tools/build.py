@@ -399,6 +399,9 @@ def hero():
 # ---------------------------------------------------------------- project cards
 
 PROJECTS = [
+    ("commit-arcade", "Commit Arcade", "#ff4df0", "GitHub Marketplace",
+     ["Ten arcade games played on your GitHub", "contribution graph, as animated SVGs."],
+     [("TypeScript", "#2f8cff"), ("GitHub Action", "#a97bff"), ("SVG", "#f5b53d")]),
     ("flutster", "Flutster", "#f5b53d", "Google Play",
      ["Music-timeline party game. Scan a card,", "the song plays, guess the year."],
      [("Flutter", "#2f8cff"), ("Dart", "#14b8c4"), ("Web card maker", "#ff4d6d")]),
