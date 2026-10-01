@@ -14,7 +14,7 @@ jobs:
   arcade:
     runs-on: ubuntu-latest
     steps:
-      - uses: Nicsilver/commit-arcade@main
+      - uses: Nicsilver/commit-arcade@v1
         with:
           outputs: |
             dist/arcade.svg?game=daily&theme=neon
