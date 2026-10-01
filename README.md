@@ -62,9 +62,6 @@ Full-stack developer at **Brunata** in Denmark, mostly Kotlin, Java, Angular and
 
 <p align="center">
   <a href="https://github.com/Nicsilver/commit-arcade">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Nicsilver/Nicsilver/output/arcade.svg">
-      <img src="https://raw.githubusercontent.com/Nicsilver/Nicsilver/output/arcade-light.svg" width="100%" alt="Today's arcade game played on my contribution graph">
-    </picture>
+    <img src="https://raw.githubusercontent.com/Nicsilver/Nicsilver/output/arcade.svg" width="100%" alt="Today's arcade game played on my contribution graph">
   </a>
 </p>

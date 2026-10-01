@@ -17,8 +17,7 @@ jobs:
       - uses: Nicsilver/commit-arcade@main
         with:
           outputs: |
-            dist/arcade.svg?game=daily&theme=github-dark
-            dist/arcade-light.svg?game=daily&theme=github-light
+            dist/arcade.svg?game=daily&theme=neon
 
       - uses: crazy-max/ghaction-github-pages@v4
         with:
