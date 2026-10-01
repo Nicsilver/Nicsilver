@@ -57,7 +57,7 @@ Full-stack developer at **Brunata** in Denmark, mostly Kotlin, Java, Angular and
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/section-activity-dark.svg">
-  <img src="assets/section-activity.svg" width="100%" alt="The snake eats my commits">
+  <img src="assets/section-activity.svg" width="100%" alt="Activity">
 </picture>
 
 <picture>

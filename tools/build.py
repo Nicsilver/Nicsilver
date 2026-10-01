@@ -458,16 +458,17 @@ SECTIONS = [
     ("featured", "01", "FEATURED", "What I'm building right now"),
     ("shipped", "02", "SHIPPED", "More things I've made"),
     ("stack", "03", "STACK", "Tools of the trade"),
-    ("activity", "04", "ACTIVITY", "The snake eats my commits"),
+    ("activity", "04", "ACTIVITY", ""),
 ]
 
 
 def section(num, kicker, title, dark):
     # Transparent background, so it needs a light and a dark variant.
     ink = TEXT if dark else "#1f2328"
-    rule = "#ffffff" if dark else "#000000"
     f = Fonts()
-    W, H = 1200, 120
+    W, H = (1200, 120) if title else (1200, 76)
+    # Without a title the kicker stays put and the rule moves up under it.
+    star_y, kicker_y, rule_y = (66, 44, 104) if title else (38, 44, 62)
     out = [
         '<defs><linearGradient id="spec" x1="0" x2="1">'
         + "".join(f'<stop offset="{i/(len(SPECTRUM)-1):.2f}" stop-color="{c}"/>' for i, c in enumerate(SPECTRUM))
@@ -481,17 +482,16 @@ def section(num, kicker, title, dark):
     # Four-point spark that spins slowly and pulses.
     star = "M 0 -16 C 2 -4 4 -2 16 0 C 4 2 2 4 0 16 C -2 4 -4 2 -16 0 C -4 -2 -2 -4 0 -16 Z"
     out.append(
-        f'<g transform="translate(30 66)"><g class="pop">'
+        f'<g transform="translate(30 {star_y})"><g class="pop">'
         f'<path d="{star}" fill="url(#flow)" filter="url(#glow)" opacity="0.8"/><path d="{star}" fill="url(#flow)">'
         f'<animateTransform attributeName="transform" type="rotate" values="0;90" dur="4s" repeatCount="indefinite"/></path>'
         f'</g></g>'
     )
-    out.append(f'<g class="up" {delay(0.1)}>' + t(f, "InterSemi", 62, 44, 15, f"{num}  /  {kicker}", fill="url(#flow)", extra='letter-spacing="3"') + '</g>')
-    out.append(f'<g class="up" {delay(0.2)}>' + t(f, "InterDisplayX", 60, 86, 40, title, fill=ink, extra='letter-spacing="-0.8"') + '</g>')
-    tw = measure(title, "InterDisplayX", 40) - 0.8 * len(title)
-    out.append(f'<rect class="grow" {delay(0.4)} x="62" y="104" width="{tw:.0f}" height="4" rx="2" fill="url(#flow)"/>')
-    out.append(f'<rect class="grow" {delay(0.7)} x="{62 + tw + 14:.0f}" y="105.5" width="{W - 62 - tw - 14:.0f}" height="1" fill="{rule}" fill-opacity="0.10"/>')
-    return svg(W, H, "\n".join(out), f, title)
+    out.append(f'<g class="up" {delay(0.1)}>' + t(f, "InterSemi", 62, kicker_y, 15, f"{num}  /  {kicker}", fill="url(#flow)", extra='letter-spacing="3"') + '</g>')
+    if title:
+        out.append(f'<g class="up" {delay(0.2)}>' + t(f, "InterDisplayX", 60, 86, 40, title, fill=ink, extra='letter-spacing="-0.8"') + '</g>')
+    out.append(f'<rect class="grow" {delay(0.4)} x="62" y="{rule_y}" width="{W - 62}" height="4" rx="2" fill="url(#flow)"/>')
+    return svg(W, H, "\n".join(out), f, title or kicker.title())
 
 
 def main():
