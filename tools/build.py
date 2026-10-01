@@ -234,6 +234,7 @@ def header():
         ("TV remotes.", "#ff4d6d"),
         ("IDE plugins.", "#7c9bff"),
         ("party games.", "#f5b53d"),
+        ("arcade games.", "#ff4df0"),
         ("tools in Rust.", "#ff7a3d"),
         ("websites.", "#b18cff"),
     ]
@@ -295,6 +296,7 @@ def header():
         ("jumper", 960, 214, 66, 4.8, 8),
         ("pcio", 820, 196, 70, 6.2, 9),
         ("claude-sessions", 1112, 126, 48, 5.2, 7),
+        ("commit-arcade", 722, 92, 80, 5.8, 9),
     ]
     for i, (name, x, y0, s, dur, amp) in enumerate(floats):
         out.append(
