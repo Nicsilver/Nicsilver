@@ -1,15 +1,17 @@
 """Generates the SVG graphics in assets/ used by the profile README.
 
-Run: python tools/build.py   (needs Pillow + fonttools[woff] + brotli)
+Run: python tools/build.py   (needs Pillow + numpy + fonttools[woff] + brotli)
 """
 import base64
 import io
+import math
 import random
 from pathlib import Path
 
+import numpy as np
 from fontTools import subset
 from fontTools.ttLib import TTFont
-from PIL import ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "tools" / "src"
@@ -77,6 +79,90 @@ class Fonts:
                 f"src:url(data:font/woff2;base64,{data}) format('woff2');}}"
             )
         return "\n".join(rules)
+
+
+# GitHub shows these SVGs through <img>, where any running animation makes the
+# browser repaint the whole image every frame and recompute every filter in it.
+# So blurs are baked where that measured faster: blurred discs become radial
+# gradients with the exact Gaussian falloff, blurred shapes pre-blurred PNGs.
+# The comet keeps its real blur; every stacked-stroke imitation of it cost more.
+
+_erf = np.vectorize(math.erf)
+
+
+def disc_falloff(r, sigma, ds):
+    """Alpha at distance d from the centre of a disc of radius r after a Gaussian blur."""
+    x = np.linspace(-r, r, 801)
+    chord = _erf(np.sqrt(np.maximum(r * r - x * x, 0)) / (sigma * math.sqrt(2)))
+    return [
+        float(np.trapezoid(np.exp(-((x - d) ** 2) / (2 * sigma * sigma)) * chord, x)) / (sigma * math.sqrt(2 * math.pi))
+        for d in ds
+    ]
+
+
+def blurred_disc(gid, r, sigma, color, stops=24):
+    """Radial gradient matching feGaussianBlur(sigma) on a disc; draw it with radius `extent`."""
+    extent = r + 3 * sigma
+    offs = [i / (stops - 1) for i in range(stops)]
+    alphas = disc_falloff(r, sigma, [o * extent for o in offs])
+    grad = (
+        f'<radialGradient id="{gid}">'
+        + "".join(f'<stop offset="{o:.3f}" stop-color="{color}" stop-opacity="{a:.3f}"/>' for o, a in zip(offs, alphas))
+        + '</radialGradient>'
+    )
+    return grad, extent
+
+
+def _png_alpha(alpha, rgb=(0, 0, 0)):
+    a = Image.fromarray(np.clip(alpha * 255 + 0.5, 0, 255).astype(np.uint8), "L")
+    im = Image.new("RGBA", a.size, rgb + (0,))
+    im.putalpha(a)
+    buf = io.BytesIO()
+    im.save(buf, "PNG", optimize=True)
+    return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}"
+
+
+def _blur(alpha, sigma_px):
+    k = np.arange(-math.ceil(3 * sigma_px), math.ceil(3 * sigma_px) + 1)
+    kern = np.exp(-(k * k) / (2 * sigma_px * sigma_px))
+    kern /= kern.sum()
+    alpha = np.apply_along_axis(lambda v: np.convolve(v, kern, "same"), 0, alpha)
+    return np.apply_along_axis(lambda v: np.convolve(v, kern, "same"), 1, alpha)
+
+
+def blurred_rrect(x, y, w, h, rx, sigma, scale, extra=""):
+    """<image> of a black rounded rect after feGaussianBlur(sigma), rendered at `scale` px per unit."""
+    pad = 3 * sigma
+    pw, ph = math.ceil((w + 2 * pad) * scale), math.ceil((h + 2 * pad) * scale)
+    px = (np.arange(pw) + 0.5) / scale - pad - w / 2
+    py = (np.arange(ph) + 0.5) / scale - pad - h / 2
+    qx = np.abs(px)[None, :] - (w / 2 - rx)
+    qy = np.abs(py)[:, None] - (h / 2 - rx)
+    sd = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - rx
+    alpha = _blur(np.clip(0.5 - sd * scale, 0, 1), sigma * scale)
+    return (
+        f'<image href="{_png_alpha(alpha)}" x="{x - pad:.2f}" y="{y - pad:.2f}" width="{pw / scale:.3f}" '
+        f'height="{ph / scale:.3f}" preserveAspectRatio="none" {extra}/>'
+    )
+
+
+def blurred_path_mask(mid, points, sigma, scale):
+    """<mask> holding a pre-blurred polygon, for glows whose colour is animated."""
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    pad = 3 * sigma
+    x0, y0 = min(xs) - pad, min(ys) - pad
+    pw, ph = math.ceil((max(xs) - min(xs) + 2 * pad) * scale), math.ceil((max(ys) - min(ys) + 2 * pad) * scale)
+    ss = 4
+    im = Image.new("L", (pw * ss, ph * ss), 0)
+    ImageDraw.Draw(im).polygon([((px - x0) * scale * ss, (py - y0) * scale * ss) for px, py in points], fill=255)
+    alpha = np.asarray(im.resize((pw, ph), Image.Resampling.BOX), dtype=float) / 255
+    alpha = _blur(alpha, sigma * scale)
+    box = f'x="{x0:.2f}" y="{y0:.2f}" width="{pw / scale:.3f}" height="{ph / scale:.3f}"'
+    return (
+        f'<mask id="{mid}" maskUnits="userSpaceOnUse" {box}>'
+        f'<image href="{_png_alpha(alpha, (255, 255, 255))}" {box} preserveAspectRatio="none"/></mask>',
+        box,
+    )
 
 
 def esc(s):
@@ -170,8 +256,6 @@ def header():
     rnd = random.Random(7)
     out = [
         '<defs>',
-        '<filter id="blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="60"/></filter>',
-        '<filter id="spark" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="1.6"/></filter>',
         '<pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#ffffff" fill-opacity="0.05"/></pattern>',
         f'<clipPath id="card"><rect width="{W}" height="{H}" rx="22"/></clipPath>',
         '<linearGradient id="spec" x1="0" x2="1">'
@@ -183,14 +267,15 @@ def header():
         f'<rect width="{W}" height="{H}" fill="url(#dots)"/>',
     ]
     # Slow drifting colour glows behind everything.
-    for cx, cy, r, c, dx, dy, dur in [
+    for i, (cx, cy, r, c, dx, dy, dur) in enumerate([
         (980, 60, 170, "#7c5cff", -60, 40, 14),
         (1120, 320, 150, "#ff4d6d", -40, -30, 11),
         (760, 380, 140, "#2f8cff", 50, -20, 16),
         (120, -40, 120, "#14b88a", 40, 30, 18),
-    ]:
+    ]):
+        grad, extent = blurred_disc(f"glow{i}", r, 60, c)
         out.append(
-            f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{c}" opacity="0.38" filter="url(#blur)">'
+            f'{grad}<circle cx="{cx}" cy="{cy}" r="{extent:.1f}" fill="url(#glow{i})" opacity="0.38">'
             f'<animateTransform attributeName="transform" type="translate" values="0 0;{dx} {dy};0 0" dur="{dur}s" repeatCount="indefinite"/></circle>'
         )
     # Sparks rising: "gnist" is Danish for spark.
@@ -202,8 +287,9 @@ def header():
         c = rnd.choice(SPECTRUM + ["#ffffff"])
         begin = -rnd.uniform(0, dur)
         drift = rnd.uniform(-30, 30)
+        grad, extent = blurred_disc(f"spark{i}", round(r, 1), 1.6, c, stops=12)
         out.append(
-            f'<circle cx="{x:.0f}" cy="{H + 10}" r="{r:.1f}" fill="{c}" filter="url(#spark)">'
+            f'{grad}<circle cx="{x:.0f}" cy="{H + 10}" r="{extent:.2f}" fill="url(#spark{i})">'
             f'<animate attributeName="cy" values="{H + 10};{H + 10 - rise:.0f}" dur="{dur:.1f}s" begin="{begin:.1f}s" repeatCount="indefinite"/>'
             f'<animate attributeName="cx" values="{x:.0f};{x + drift:.0f}" dur="{dur:.1f}s" begin="{begin:.1f}s" repeatCount="indefinite"/>'
             f'<animate attributeName="opacity" values="0;1;0.8;0" keyTimes="0;0.15;0.6;1" dur="{dur:.1f}s" begin="{begin:.1f}s" repeatCount="indefinite"/>'
@@ -302,8 +388,10 @@ def header():
         out.append(
             f'<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -{amp};0 0" '
             f'dur="{dur}s" begin="-{i * 0.7:.1f}s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>'
-            f'<g class="pop" {delay(0.5 + i * 0.12)}>'
-            f'<rect x="{x}" y="{y0 + 10}" width="{s}" height="{s}" rx="{s * 0.23}" fill="#000" opacity="0.45" filter="url(#spark)"/>'
+            # The baked shadow's blur margin would grow the fill-box and move the pivot.
+            f'<g class="pop" style="animation-delay:{0.5 + i * 0.12:.2f}s;transform-box:view-box;'
+            f'transform-origin:{x + s / 2}px {y0 + (s + 10) / 2}px">'
+            + blurred_rrect(x, y0 + 10, s, s, s * 0.23, 1.6, 2, 'opacity="0.45"')
             + icon(x, y0, s, name)
             + '</g></g>'
         )
@@ -321,21 +409,20 @@ def hero():
     W, H = 1200, 500
     out = [
         '<defs>',
-        '<filter id="blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="70"/></filter>',
-        '<filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000" flood-opacity="0.55"/></filter>',
         f'<clipPath id="card"><rect width="{W}" height="{H}" rx="22"/></clipPath>',
         '</defs>',
         '<g clip-path="url(#card)">',
         f'<rect width="{W}" height="{H}" fill="#0c0b12"/>',
     ]
     # Red-to-blue glow from the LG Power store banner.
-    for cx, cy, r, c, op, dur in [
+    for i, (cx, cy, r, c, op, dur) in enumerate([
         (180, 60, 240, "#d8343c", 0.55, 9),
         (700, 470, 260, "#6a2fb8", 0.45, 12),
         (1100, 120, 260, "#2846c8", 0.6, 10),
-    ]:
+    ]):
+        grad, extent = blurred_disc(f"glow{i}", r, 70, c)
         out.append(
-            f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{c}" opacity="{op}" filter="url(#blur)">'
+            f'{grad}<circle cx="{cx}" cy="{cy}" r="{extent:.1f}" fill="url(#glow{i})" opacity="{op}">'
             f'<animate attributeName="opacity" values="{op};{op * 0.6:.2f};{op}" dur="{dur}s" repeatCount="indefinite"/></circle>'
         )
 
@@ -386,7 +473,8 @@ def hero():
             f'begin="-{i * 1.3:.1f}s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/>'
             f'<g class="rise" {delay(0.3 + i * 0.25)}><g transform="rotate({rot} {cx:.0f} {cy:.0f})">'
             f'<clipPath id="{cid}"><rect x="{sx}" y="{sy}" width="{sw}" height="{sh:.0f}" rx="18"/></clipPath>'
-            f'<rect x="{sx}" y="{sy}" width="{sw}" height="{sh:.0f}" rx="18" fill="#000" filter="url(#shadow)"/>'
+            + blurred_rrect(sx, sy + 18, sw, round(sh), 18, 18, 0.5, 'opacity="0.55"')
+            + f'<rect x="{sx}" y="{sy}" width="{sw}" height="{sh:.0f}" rx="18" fill="#000"/>'
             f'<image href="{b64(SRC / file)}" x="{sx}" y="{sy}" width="{sw}" height="{sh:.0f}" clip-path="url(#{cid})" preserveAspectRatio="xMidYMid slice"/>'
             f'<rect x="{sx}" y="{sy}" width="{sw}" height="{sh:.0f}" rx="18" fill="none" stroke="#ffffff" stroke-opacity="0.14"/>'
             f'</g></g></g>'
@@ -467,6 +555,18 @@ SECTIONS = [
 ]
 
 
+def star_points(steps=48):
+    # Same curves as the star path in section(), flattened for rasterising.
+    pts = []
+    for p0, p1, p2, p3 in [((0, -16), (2, -4), (4, -2), (16, 0)), ((16, 0), (4, 2), (2, 4), (0, 16)),
+                           ((0, 16), (-2, 4), (-4, 2), (-16, 0)), ((-16, 0), (-4, -2), (-2, -4), (0, -16))]:
+        for k in range(steps):
+            u = k / steps
+            pts.append(tuple((1 - u) ** 3 * a + 3 * (1 - u) ** 2 * u * b + 3 * (1 - u) * u * u * c + u ** 3 * d
+                             for a, b, c, d in zip(p0, p1, p2, p3)))
+    return pts
+
+
 def section(num, kicker, title, dark):
     # Transparent background, so it needs a light and a dark variant.
     ink = TEXT if dark else "#1f2328"
@@ -481,14 +581,14 @@ def section(num, kicker, title, dark):
         '<linearGradient id="flow" gradientUnits="userSpaceOnUse" x1="0" x2="600" spreadMethod="repeat">'
         + "".join(f'<stop offset="{i/len(SPECTRUM):.2f}" stop-color="{c}"/>' for i, c in enumerate(SPECTRUM + [SPECTRUM[0]]))
         + '<animateTransform attributeName="gradientTransform" type="translate" values="0 0;600 0" dur="6s" repeatCount="indefinite"/>'
-        '</linearGradient>'
-        '<filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter></defs>',
+        '</linearGradient></defs>',
     ]
     # Four-point spark that spins slowly and pulses.
     star = "M 0 -16 C 2 -4 4 -2 16 0 C 4 2 2 4 0 16 C -2 4 -4 2 -16 0 C -4 -2 -2 -4 0 -16 Z"
+    mask, box = blurred_path_mask("starglow", star_points(), 4, 3)
     out.append(
         f'<g transform="translate(30 {star_y})"><g class="pop">'
-        f'<path d="{star}" fill="url(#flow)" filter="url(#glow)" opacity="0.8"/><path d="{star}" fill="url(#flow)">'
+        f'{mask}<rect {box} fill="url(#flow)" mask="url(#starglow)" opacity="0.8"/><path d="{star}" fill="url(#flow)">'
         f'<animateTransform attributeName="transform" type="rotate" values="0;90" dur="4s" repeatCount="indefinite"/></path>'
         f'</g></g>'
     )
